@@ -62,13 +62,6 @@ pub fn main() !void {
     }
     defer in.close();
     var reader = in.reader(&read_buffer);
-    // if (res.args.input) |f| {
-    //     const file = try std.fs.cwd().openFile(f, .{});
-    //     defer file.close();
-    //     reader = file.reader(&read_buffer);
-    // } else {
-    //     reader = std.fs.File.stdin().reader(&read_buffer);
-    // }
 
     var write_buffer: [4096]u8 = undefined;
     var out: std.fs.File = undefined;
@@ -79,16 +72,10 @@ pub fn main() !void {
     }
     defer out.close();
     var writer = out.writer(&write_buffer);
-    // if (res.args.output) |f| {
-    //     const file = try std.fs.cwd().openFile(f, .{});
-    //     defer file.close();
-    //     writer = file.writer(&write_buffer);
-    // } else {
-    //     writer = std.fs.File.stdout().writer(&write_buffer);
-    // }
 
     const read_interface = &reader.interface;
     const write_interface = &writer.interface;
+    defer write_interface.flush() catch |err| { std.debug.print("failed final flush: {}", .{err}); };
     var line_no: usize = 0;
     while (try read_interface.takeDelimiter('\n')) |line| {
         line_no += 1;
@@ -100,5 +87,4 @@ pub fn main() !void {
         \\============================
         \\
         , .{line_no});
-    try write_interface.flush();
 }
