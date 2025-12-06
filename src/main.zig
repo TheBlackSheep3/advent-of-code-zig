@@ -39,7 +39,7 @@ pub fn main() !void {
     defer {
         const heapCheck = gpa.deinit();
         if (std.heap.Check.leak == heapCheck) {
-            std.debug.print("memory leak detected", .{});
+            std.debug.print("memory leak detected\n", .{});
         }
     }
     const allocator = gpa.allocator();
@@ -94,17 +94,8 @@ pub fn main() !void {
     const read_interface = &reader.interface;
     const write_interface = &writer.interface;
     defer write_interface.flush() catch |err| { std.debug.print("failed final flush: {}", .{err}); };
-    var data = try std.ArrayList(u8).initCapacity(allocator, BUFFER_SIZE);
+    var data = std.ArrayList(u8).empty;
+    try read_interface.appendRemainingUnlimited(allocator, &data);
     defer data.deinit(allocator);
-    var line_no: usize = 0;
-    while (try read_interface.takeDelimiter('\n')) |line| {
-        line_no += 1;
-        try write_interface.print("Read line: '{s}'\n", .{line});
-    }
-    try write_interface.print(
-        \\============================
-        \\= Read {d: >4} lines in total =
-        \\============================
-        \\
-        , .{line_no});
+    try write_interface.print("sucessfully read {} bytes\n", .{data.items.len});
 }
