@@ -9,51 +9,70 @@ const USAGE_FMT =
     \\
 ;
 
-const parameter_help =
+const PARAMETER_HELP =
     \\-h, --help           Display this help and exit.
     \\-i, --input <FILE>   Path to the file to read in.
     \\-o, --output <FILE>  Path to the file to write to.
     \\
 ;
 
+const BUFFER_SIZE = 4096;
+
+fn print_help(writer: *std.io.Writer) !void {
+    const program_name = try get_program_name();
+    const basename = std.fs.path.basename(program_name);
+    try writer.print(USAGE_FMT, .{basename, PARAMETER_HELP});
+    try writer.flush();
+}
+
+fn get_program_name() ![]const u8 {
+    var argIter = std.process.args();
+    if (argIter.next()) |name| {
+        return name;
+    } else {
+        return error.UnknownProgramName;
+    }
+}
+
 pub fn main() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer {
+        const heapCheck = gpa.deinit();
+        if (std.heap.Check.leak == heapCheck) {
+            std.debug.print("memory leak detected", .{});
+        }
+    }
+    const allocator = gpa.allocator();
 
     // First we specify what parameters our program can take.
     // We can use `parseParamsComptime` to parse a string into an array of `Param(Help)`.
-    const params = comptime clap.parseParamsComptime(parameter_help);
+    const params = comptime clap.parseParamsComptime(PARAMETER_HELP);
+    const parsers = comptime .{ .FILE = clap.parsers.string, };
 
-    const parsers = comptime .{
-        .FILE = clap.parsers.string,
-    };
+    // buffer for writing output
+    var write_buffer: [BUFFER_SIZE]u8 = undefined;
+
     // Initialize our diagnostics, which can be used for reporting useful errors.
     // This is optional. You can also pass `.{}` to `clap.parse` if you don't
     // care about the extra information `Diagnostic` provides.
-    var res = try clap.parse(clap.Help, &params, parsers, .{
-        .allocator = arena.allocator(),
-    });
+    var res = clap.parse(clap.Help, &params, parsers, .{
+        .allocator = allocator,
+    }) catch |err| {
+        var stderr_writer = std.fs.File.stderr().writer(&write_buffer);
+        const stderr = &stderr_writer.interface;
+        try print_help(stderr);
+        return err;
+    };
     defer res.deinit();
 
-    // buffer for writing output
-    var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
-
-    if (res.args.help != 0)
-    {
-        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-        const allocator = gpa.allocator();
-        defer _ = gpa.deinit();
-
-        const argv = try std.process.argsAlloc(allocator);
-        defer std.process.argsFree(allocator, argv);
-        try stdout.print(USAGE_FMT, .{std.fs.path.basename(argv[0]),parameter_help});
-        try stdout.flush();
+    if (res.args.help != 0) {
+        var stdout_writer = std.fs.File.stdout().writer(&write_buffer);
+        const stdout = &stdout_writer.interface;
+        try print_help(stdout);
         return;
     }
 
-    var read_buffer: [4096]u8 = undefined;
+    var read_buffer: [BUFFER_SIZE]u8 = undefined;
     var in: std.fs.File = undefined;
     if (res.args.input) |f| {
         in = try std.fs.cwd().openFile(f, .{});
@@ -63,7 +82,6 @@ pub fn main() !void {
     defer in.close();
     var reader = in.reader(&read_buffer);
 
-    var write_buffer: [4096]u8 = undefined;
     var out: std.fs.File = undefined;
     if (res.args.output) |f| {
         out = try std.fs.cwd().createFile(f, .{});
@@ -76,6 +94,8 @@ pub fn main() !void {
     const read_interface = &reader.interface;
     const write_interface = &writer.interface;
     defer write_interface.flush() catch |err| { std.debug.print("failed final flush: {}", .{err}); };
+    var data = try std.ArrayList(u8).initCapacity(allocator, BUFFER_SIZE);
+    defer data.deinit(allocator);
     var line_no: usize = 0;
     while (try read_interface.takeDelimiter('\n')) |line| {
         line_no += 1;
