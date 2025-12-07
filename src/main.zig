@@ -1,5 +1,6 @@
 const std = @import("std");
 const clap = @import("clap");
+const lib = @import("aoczig");
 
 const USAGE_FMT =
     \\Usage: {s} [-i <FILE>] [-o <FILE>]
@@ -97,5 +98,6 @@ pub fn main() !void {
     var data = std.ArrayList(u8).empty;
     try read_interface.appendRemainingUnlimited(allocator, &data);
     defer data.deinit(allocator);
-    try write_interface.print("sucessfully read {} bytes\n", .{data.items.len});
+    const answer: i32 = try lib.get_zero_position_count(data.items);
+    try write_interface.print("answer 1: {}\n", .{answer});
 }
